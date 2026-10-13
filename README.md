@@ -1,6 +1,6 @@
 # Sistem Pengajuan Surat Peminjaman Ruangan
 
-Aplikasi **console-based** berbasis Java untuk mengelola pengajuan surat peminjaman ruangan di lingkungan kampus. Program ini dibangun dengan menerapkan konsep **Pemrograman Berorientasi Objek (OOP)** secara penuh — *encapsulation*, *inheritance*, *polymorphism*, dan *abstraction* — serta pola arsitektur **MVC (Model-View-Controller)**.
+Aplikasi **console-based** berbasis Java untuk mengelola pengajuan surat peminjaman ruangan di lingkungan kampus. Program ini dibangun dengan menerapkan konsep **Pemrograman Berorientasi Objek (OOP)** secara penuh — *encapsulation*, *inheritance*, *polymorphism*, dan *abstraction* — serta pola arsitektur **MVC (Model-View-Controller)**. Data disimpan permanen di **MariaDB** melalui **JDBC** dengan pola **DAO (Data Access Object)**.
 
 ---
 
@@ -8,25 +8,28 @@ Aplikasi **console-based** berbasis Java untuk mengelola pengajuan surat peminja
 
 - [Deskripsi Singkat Program](#deskripsi-singkat-program)
 - [Struktur Package](#struktur-package)
+- [Cara Menjalankan](#cara-menjalankan)
 - [Alur Program](#alur-program)
 - [Encapsulation dan Inheritance](#encapsulation-dan-inheritance)
 - [Polymorphism dan Abstraction](#polymorphism-dan-abstraction)
+- [JDBC dan DAO](#jdbc-dan-dao)
 - [Validasi Input](#validasi-input)
+- [Keterbatasan Saat Ini](#keterbatasan-saat-ini)
 
 ---
 
 ## Deskripsi Singkat Program
 
-Program ini adalah sistem berbasis teks (CLI) yang memungkinkan pengguna mengajukan, melihat, menghapus, dan mengganti surat peminjaman ruangan kampus. Ruangan yang tersedia ada tiga jenis: **Meeting Room**, **Laboratorium**, dan **Kelas Teori**. Pihak peminjam dibagi dua kategori: **Internal** (dosen/mahasiswa/staff) dan **Eksternal** (perusahaan/organisasi luar).
+Program ini adalah sistem berbasis teks (CLI) yang memungkinkan pengguna mengajukan, melihat, menghapus, dan mengganti ruangan pada surat peminjaman ruangan kampus. Ruangan yang tersedia ada tiga jenis: **Meeting Room**, **Laboratorium**, dan **Kelas Teori**. Ruangan adalah **data master** yang sudah tersimpan di database — pengguna **memilih** ruangan dari daftar, bukan membuatnya saat pengajuan. Pihak peminjam dibagi dua kategori: **Internal** (dosen/mahasiswa/staff) dan **Eksternal** (perusahaan/organisasi luar).
 
 **Fitur utama:**
 
 | No | Menu | Keterangan |
 |----|------|------------|
-| 1 | Pengajuan Surat | Mengisi dan menyimpan data peminjaman baru |
-| 2 | Cek Status | Menampilkan seluruh daftar peminjaman |
+| 1 | Pengajuan Surat | Mengisi data surat dan jadwal, memilih ruangan dari daftar, lalu menyimpan ke database. Jadwal yang bentrok ditolak |
+| 2 | Cek Status | Menampilkan seluruh daftar peminjaman yang dimuat ulang dari database |
 | 3 | Hapus Peminjaman | Menghapus surat peminjaman berdasarkan nomor surat |
-| 4 | Ganti Ruangan | Mengganti ruangan pada peminjaman yang sudah ada |
+| 4 | Ganti Ruangan | Mengganti ruangan pada peminjaman yang sudah ada, dengan pengecekan bentrok jadwal |
 | 5 | Keluar | Menghentikan program |
 
 Program dijalankan dari class `Peminjamanruangan.java` sebagai titik masuk (*entry point*):
@@ -34,14 +37,20 @@ Program dijalankan dari class `Peminjamanruangan.java` sebagai titik masuk (*ent
 ```java
 public static void main(String[] args) {
     Scanner scanner = new Scanner(System.in);
-    peminjamanView view = new peminjamanView(scanner);
-    PeminjamanController controller = new PeminjamanController(view);
-    controller.jalankan();
-    scanner.close();
+    try {
+        peminjamanView view = new peminjamanView(scanner);
+        PeminjamanController controller = new PeminjamanController(view);
+        controller.jalankan();
+    } catch (IllegalStateException e) {
+        System.out.println(">> Aplikasi tidak dapat dijalankan: " + e.getMessage());
+        // ...
+    } finally {
+        scanner.close();
+    }
 }
 ```
 
-`main` tidak mengandung logika apapun — tugasnya hanya merakit objek `View` dan `Controller`, lalu menyerahkan kendali sepenuhnya ke `controller.jalankan()`.
+`main` tidak mengandung logika bisnis — tugasnya hanya merakit objek `View` dan `Controller`, menyerahkan kendali ke `controller.jalankan()`, dan menangkap kegagalan startup (misalnya database mati atau `db.properties` tidak ditemukan) agar pengguna melihat pesan yang jelas, bukan *stack trace*.
 
 ![Tampilan menu utama program](gambar/menu-utama.png)
 
@@ -49,7 +58,7 @@ public static void main(String[] args) {
 
 ## Struktur Package
 
-Program disusun menggunakan pola **MVC**, di mana setiap lapisan punya tanggung jawab yang jelas dan terpisah.
+Program disusun menggunakan pola **MVC**, ditambah lapisan **DAO** dan **database** untuk akses data. Setiap lapisan punya tanggung jawab yang jelas dan terpisah.
 
 ```
 com.mycompany.peminjamanruangan
@@ -70,17 +79,32 @@ com.mycompany.peminjamanruangan
 ├── View/                           ← VIEW: tampilan & pembacaan input
 │   └── peminjamanView.java
 │
-└── controller/                     ← CONTROLLER: alur & logika bisnis
-    └── PeminjamanController.java
+├── controller/                     ← CONTROLLER: alur & validasi
+│   └── PeminjamanController.java
+│
+├── dao/                            ← DAO: seluruh perintah SQL
+│   └── PeminjamanDAO.java
+│
+└── database/                       ← KONEKSI: akses ke MariaDB
+    ├── DatabaseConnection.java        Membuka koneksi JDBC
+    └── TestDatabase.java              Uji koneksi secara mandiri
+
+src/main/resources/
+├── db.properties                   ← Kredensial database (TIDAK di-commit)
+└── db.properties.example           ← Contoh konfigurasi (di-commit)
+
+schema.sql                          ← Skema tabel & data master ruangan
 ```
 
 ### Tanggung Jawab Setiap Package
 
 | Package | Tanggung Jawab |
 |---------|----------------|
-| `model` | Menyimpan **struktur data** dan **atribut objek**. Tidak berisi logika alur program maupun tampilan. |
+| `model` | Menyimpan **struktur data** dan **atribut objek**. Tidak berisi logika alur program, tampilan, maupun SQL. |
 | `View` | Menangani **semua interaksi dengan pengguna** — menampilkan menu, membaca input, mencetak output ke layar. Tidak menyimpan data. |
-| `controller` | Mengatur **alur program dan logika bisnis** — memanggil `View` untuk input/output, menyimpan/mengubah/menghapus data di `ArrayList`, dan memutuskan objek `model` apa yang dibuat. |
+| `controller` | Mengatur **alur program dan validasi**. Memanggil `View` untuk input/output dan `dao` untuk penyimpanan. `ArrayList` hanya salinan kerja di memori. **Tidak menulis SQL.** |
+| `dao` | Berisi **semua SQL**. Mengubah objek Java menjadi baris tabel dan sebaliknya. |
+| `database` | Satu-satunya tempat yang membuka koneksi ke database. Kredensial dibaca dari `db.properties`, tidak ditulis di kode. |
 
 ### Diagram Hubungan Antar-Class
 
@@ -91,21 +115,51 @@ Peminjamanruangan (main)
     │
     └──► PeminjamanController
               │
-              └──► ArrayList<Peminjaman>
-                        │
-                        ├──► Peminjam (abstract)
-                        │       ├── PeminjamInternal
-                        │       └── PeminjamEksternal
-                        │
-                        ├──► Ruangan (abstract)
-                        │       ├── MeetingRoom
-                        │       ├── Laboratorium
-                        │       └── KelasTeori
-                        │
-                        └──► Jadwal
+              ├──► ArrayList<Peminjaman>   (salinan kerja di memori)
+              │         │
+              │         ├──► Peminjam (abstract)
+              │         │       ├── PeminjamInternal
+              │         │       └── PeminjamEksternal
+              │         │
+              │         ├──► Ruangan (abstract)
+              │         │       ├── MeetingRoom
+              │         │       ├── Laboratorium
+              │         │       └── KelasTeori
+              │         │
+              │         └──► Jadwal
+              │
+              └──► PeminjamanDAO ──► DatabaseConnection ──► MariaDB
 ```
 
-![Diagram struktur package MVC](gambar/struktur-package.png)
+---
+
+## Cara Menjalankan
+
+**Prasyarat:** JDK 21 (dibutuhkan oleh *pattern matching* pada `switch`), Maven, dan MariaDB.
+
+1. **Siapkan database.** Jalankan `schema.sql` di MariaDB. Script ini membuat database `peminjaman_ruangan`, empat tabel, dan data master ruangan.
+2. **Siapkan konfigurasi.** Salin `src/main/resources/db.properties.example` menjadi `src/main/resources/db.properties`, lalu isi user dan password database.
+
+   ```properties
+   db.url=jdbc:mariadb://localhost:3306/peminjaman_ruangan
+   db.user=admin
+   db.password=ISI_PASSWORD_ANDA
+   ```
+
+3. **Pastikan dependency driver ada di `pom.xml`:**
+
+   ```xml
+   <dependency>
+       <groupId>org.mariadb.jdbc</groupId>
+       <artifactId>mariadb-java-client</artifactId>
+       <version>3.5.10</version>
+   </dependency>
+   ```
+
+4. **(Opsional) Uji koneksi** dengan menjalankan `TestDatabase.java`. Jika berhasil, tercetak `MariaDB connection successful!`.
+5. **Clean and Build**, lalu jalankan `Peminjamanruangan.java`.
+
+> `db.properties` berisi password dan sudah dimasukkan ke `.gitignore`. Jangan pernah di-commit.
 
 ---
 
@@ -114,11 +168,24 @@ Peminjamanruangan (main)
 ### Gambaran Umum
 
 1. **Program dijalankan** melalui `main()` di `Peminjamanruangan.java`.
-2. Constructor `PeminjamanController` otomatis memanggil `dummy()`, memasukkan dua data contoh ke `ArrayList` agar langsung ada data saat program pertama berjalan.
+2. Constructor `PeminjamanController` memanggil `dao.findAll()` untuk memuat data peminjaman dari database ke `ArrayList`. Jika database tidak bisa dihubungi, constructor melempar `IllegalStateException` yang ditangkap di `main`.
 3. `controller.jalankan()` dipanggil — masuk ke **loop utama** `while(berjalan)` yang terus berjalan selama pengguna belum memilih *Keluar*.
 4. Setiap iterasi, menu ditampilkan dan pilihan pengguna dibaca dan divalidasi.
 5. `switch` mengarahkan ke salah satu method: `ajukanSurat()`, `tampilkanStatus()`, `hapusSurat()`, `gantiRuangan()`, atau menghentikan loop.
 6. Saat pengguna memilih **5 (Keluar)**, flag `berjalan` diset `false`, loop berhenti, `scanner.close()` dipanggil, dan program selesai.
+
+```java
+// PeminjamanController.java — constructor
+public PeminjamanController(peminjamanView view) {
+    this.view = view;
+    try {
+        daftarPeminjaman.addAll(dao.findAll());
+    } catch (SQLException e) {
+        throw new IllegalStateException(
+                "Gagal memuat data peminjaman dari MariaDB.", e);
+    }
+}
+```
 
 ```java
 // PeminjamanController.java
@@ -140,13 +207,17 @@ public void jalankan() {
 }
 ```
 
-![Alur utama program dari awal hingga akhir](gambar/alur-utama.png)
+**Prinsip yang dipakai di semua menu:** *database dulu, memori kemudian*. `ArrayList` hanya diubah jika operasi database berhasil, sehingga tampilan dan data tidak bisa tidak sinkron.
+
+![Alur utama program dari awal hingga akhir](gambar/menu-utama.png)
 
 ---
 
 ### Menu 1 — Pengajuan Surat
 
-Pengguna mengisi data secara berurutan. Setiap field divalidasi sebelum lanjut ke field berikutnya. Setelah semua data valid, controller membentuk objek `Peminjam` (Internal/Eksternal), `Ruangan` (MeetingRoom/Laboratorium/KelasTeori), dan `Jadwal`, lalu membungkus ketiganya ke dalam `Peminjaman` baru yang disimpan ke `ArrayList`.
+Pengguna mengisi data secara berurutan: data peminjam, data surat, jadwal, lalu **memilih ruangan dari daftar**. Jadwal diisi *sebelum* memilih ruangan karena pengecekan bentrok membutuhkan keduanya. Jika ruangan yang dipilih sudah dipinjam pada jadwal tersebut, pengguna diminta memilih ruangan lain.
+
+Setelah semua data valid, controller membentuk objek `Peminjam` (Internal/Eksternal) dan `Jadwal`, mengambil objek `Ruangan` dari data master, lalu membungkus ketiganya ke dalam `Peminjaman` baru. Objek ini disimpan ke database lewat `dao.simpan()`, dan baru setelah itu dimasukkan ke `ArrayList`.
 
 ```java
 // PeminjamanController.java — helper membuat Peminjam (polimorfisme)
@@ -161,27 +232,40 @@ private Peminjam buatPeminjam() {
         return new PeminjamEksternal(nama, instansi);
     }
 }
+```
 
-// helper membuat Ruangan (polimorfisme)
-private Ruangan buatRuangan(int id, String nama, int kapasitas) {
-    int jenis = view.pilihJenisRuangan();
-    switch (jenis) {
-        case 1 -> {
-            String fasilitas = view.bacaString("Fasilitas Meeting Room   : ");
-            return new MeetingRoom(id, nama, kapasitas, false, fasilitas);
+```java
+// PeminjamanController.java — memilih ruangan dari data master
+private Ruangan pilihRuangan() throws SQLException {
+    List<Ruangan> daftar = dao.findAllRuangan();
+    if (daftar.isEmpty()) {
+        view.pesan(">> Belum ada ruangan terdaftar di database.");
+        return null;
+    }
+    view.tampilkanDaftarRuangan(daftar);
+    while (true) {
+        int id = view.bacaInt("Pilih ID ruangan (0 = batal): ");
+        if (id == 0) return null;
+        for (Ruangan r : daftar) {
+            if (r.getIdRuangan() == id) return r;
         }
-        case 2 -> {
-            String jenisLab = view.bacaString("Jenis Laboratorium       : ");
-            return new Laboratorium(id, nama, kapasitas, false, jenisLab);
-        }
-        default -> {
-            int kursi = view.bacaInt("Jumlah Kursi        (INT): ");
-            boolean proyektor = view.bacaKonfirmasi(
-                    "Ada Proyektor? (Y/N)     : ").equalsIgnoreCase("Y");
-            return new KelasTeori(id, nama, kapasitas, false, kursi, proyektor);
-        }
+        view.pesan(">> ID tidak ada dalam daftar.");
     }
 }
+```
+
+```java
+// PeminjamanController.java — cek bentrok, lalu simpan
+while (true) {
+    ruangan = pilihRuangan();
+    if (ruangan == null) { /* pengajuan dibatalkan */ return; }
+    if (!dao.adaBentrok(ruangan.getIdRuangan(),
+            LocalDate.parse(tanggal), jamMulai, jamSelesai, -1)) break;
+    view.pesan(">> Ruangan sudah dipinjam pada jadwal tersebut. Pilih ruangan lain.");
+}
+
+dao.simpan(peminjaman);              // database dulu
+daftarPeminjaman.add(peminjaman);    // memori kemudian
 ```
 
 ![Proses pengajuan surat peminjaman](gambar/pengajuan-surat.png)
@@ -190,16 +274,23 @@ private Ruangan buatRuangan(int id, String nama, int kapasitas) {
 
 ### Menu 2 — Cek Status
 
-Controller mengecek apakah `daftarPeminjaman` kosong. Jika tidak, ia mengiterasi seluruh isi `ArrayList` dan meminta `View` mencetak detail setiap `Peminjaman`.
+Controller memuat ulang seluruh data dari database (`dao.findAll()`) agar yang tampil selalu data terbaru, lalu meminta `View` mencetak detail setiap `Peminjaman`.
 
 ```java
 // PeminjamanController.java
 private void tampilkanStatus() {
-    if (daftarPeminjaman.isEmpty()) {
-        view.pesan(">> Belum ada data peminjaman.");
-    } else {
-        for (Peminjaman p : daftarPeminjaman)
-            view.tampilkanStatus(p);
+    try {
+        daftarPeminjaman.clear();
+        daftarPeminjaman.addAll(dao.findAll());
+
+        if (daftarPeminjaman.isEmpty()) {
+            view.pesan(">> Belum ada data peminjaman.");
+        } else {
+            for (Peminjaman p : daftarPeminjaman)
+                view.tampilkanStatus(p);
+        }
+    } catch (SQLException e) {
+        view.pesan(">> Gagal mengambil data: " + e.getMessage());
     }
     view.tekanEnter();
 }
@@ -222,7 +313,7 @@ public void tampilkanStatus(Peminjaman p) {
 
 ### Menu 3 — Hapus Peminjaman
 
-Pengguna memasukkan nomor surat. Controller mencari `Peminjaman` yang cocok; jika ditemukan, pengguna diminta konfirmasi `Y/N` sebelum data dihapus dari `ArrayList`.
+Pengguna memasukkan nomor surat. Controller mencari `Peminjaman` yang cocok; jika ditemukan, pengguna diminta konfirmasi `Y/N`. Penghapusan dilakukan di database lebih dulu (`dao.hapus()`), dan `ArrayList` hanya diubah jika database berhasil. Data ruangan **tidak ikut dihapus** karena merupakan data master.
 
 ```java
 // PeminjamanController.java
@@ -234,8 +325,16 @@ private void hapusSurat() {
         view.pesan(">> Nomor surat tidak ditemukan.");
     } else if (view.bacaKonfirmasi("\nYakin ingin menghapus surat ini? (Y/N): ")
                    .equalsIgnoreCase("Y")) {
-        daftarPeminjaman.remove(p);
-        view.pesan(">> Surat peminjaman berhasil dihapus!");
+        try {
+            if (dao.hapus(nomor)) {
+                daftarPeminjaman.remove(p);
+                view.pesan(">> Surat peminjaman berhasil dihapus!");
+            } else {
+                view.pesan(">> Data tidak ditemukan di database.");
+            }
+        } catch (SQLException e) {
+            view.pesan(">> Gagal menghapus data: " + e.getMessage());
+        }
     } else {
         view.pesan(">> Penghapusan dibatalkan.");
     }
@@ -249,12 +348,25 @@ private void hapusSurat() {
 
 ### Menu 4 — Ganti Ruangan
 
-Controller mencari `Peminjaman` berdasarkan nomor surat, menampilkan ruangan saat ini, meminta konfirmasi, lalu membaca data ruangan baru. Setelah valid, objek `Ruangan` baru dibuat dan dipasang ke `Peminjaman` yang sama melalui setter.
+Controller mencari `Peminjaman` berdasarkan nomor surat, menampilkan ruangan saat ini, lalu pengguna memilih ruangan pengganti dari daftar. Sebelum disimpan, sistem memeriksa bahwa ruangan baru bukan ruangan yang sedang dipakai dan **tidak bentrok** dengan peminjaman lain (surat ini dikecualikan dari pengecekan). Perubahan disimpan lewat `dao.gantiRuangan()`, lalu dipasang ke objek `Peminjaman` melalui setter.
 
 ```java
 // PeminjamanController.java
-Ruangan ruanganBaru = buatRuangan(idBaru, nama, kapasitas);
-p.setRuangan(ruanganBaru);  // hanya field ruangan yang diganti, bukan seluruh objek Peminjaman
+Ruangan baru = pilihRuangan();
+
+if (baru == null) {
+    view.pesan(">> Penggantian ruangan dibatalkan.");
+} else if (baru.getIdRuangan() == p.getRuangan().getIdRuangan()) {
+    view.pesan(">> Itu adalah ruangan yang sedang dipakai.");
+} else if (dao.adaBentrok(baru.getIdRuangan(),
+        LocalDate.parse(p.getJadwal().getTanggal()),
+        p.getJadwal().getJamMulai(), p.getJadwal().getJamSelesai(),
+        p.getNomorSurat())) {
+    view.pesan(">> Ruangan tersebut bentrok dengan peminjaman lain.");
+} else if (dao.gantiRuangan(p.getNomorSurat(), baru.getIdRuangan())) {
+    p.setRuangan(baru);   // memori diubah SETELAH database berhasil
+    view.pesan(">> Ruangan berhasil diganti ke " + baru.getNamaRuangan());
+}
 ```
 
 ![Proses mengganti ruangan pada surat peminjaman](gambar/ganti-ruangan.png)
@@ -326,17 +438,17 @@ public class Peminjaman {
 ```java
 // controller/PeminjamanController.java
 private final ArrayList<Peminjaman> daftarPeminjaman = new ArrayList<>();
+private final PeminjamanDAO dao = new PeminjamanDAO();
 private final peminjamanView view;
-// ArrayList ini hanya bisa diakses oleh method-method di dalam controller ini sendiri
+// Seluruh field bersifat private final: hanya method di dalam controller ini
+// yang bisa menyentuhnya, dan referensinya tidak bisa diganti setelah dibuat.
 ```
 
 Berkat encapsulation, fitur **Ganti Ruangan** bisa berjalan aman:
 
 ```java
-p.setRuangan(ruanganBaru);  // mengganti ruangan lewat setter, bukan akses langsung ke field
+p.setRuangan(baru);  // mengganti ruangan lewat setter, bukan akses langsung ke field
 ```
-
-![Ilustrasi encapsulation pada class model](gambar/encapsulation.png)
 
 ---
 
@@ -453,8 +565,6 @@ public class PeminjamEksternal extends Peminjam {
 }
 ```
 
-![Diagram hierarki inheritance dua hierarki](gambar/inheritance.png)
-
 ---
 
 ## Polymorphism dan Abstraction
@@ -519,9 +629,7 @@ public abstract class Peminjam {
 }
 ```
 
-Abstraction memungkinkan `PeminjamanController` dan `peminjamanView` bekerja dengan tipe umum `Ruangan` dan `Peminjam` tanpa perlu tahu detail subclass yang sesungguhnya — controller cukup memanggil `getJenisRuangan()` atau `getIdentitas()`, dan implementasi yang tepat akan berjalan secara otomatis.
-
-![Ilustrasi abstract class dan abstract method](gambar/abstraction.png)
+Abstraction memungkinkan `PeminjamanController`, `peminjamanView`, dan `PeminjamanDAO` bekerja dengan tipe umum `Ruangan` dan `Peminjam` tanpa perlu tahu detail subclass yang sesungguhnya — cukup memanggil `getJenisRuangan()` atau `getIdentitas()`, dan implementasi yang tepat akan berjalan secara otomatis.
 
 ---
 
@@ -605,10 +713,22 @@ public String getKategori() {
 
 #### Polimorfisme saat Runtime di `peminjamanView`
 
-Baris kode pemanggilan di `tampilkanStatus()` **persis sama** untuk semua jenis ruangan maupun semua kategori peminjam — Java yang menentukan implementasi mana yang dijalankan berdasarkan tipe objek sesungguhnya:
+Baris kode pemanggilan **persis sama** untuk semua jenis ruangan maupun semua kategori peminjam — Java yang menentukan implementasi mana yang dijalankan berdasarkan tipe objek sesungguhnya:
 
 ```java
-// peminjamanView.java
+// peminjamanView.java — daftar ruangan master
+public void tampilkanDaftarRuangan(List<Ruangan> daftar) {
+    for (Ruangan r : daftar) {
+        System.out.println(r.getIdRuangan() + ". " + r.getNamaRuangan()
+                + " [" + r.getJenisRuangan() + "]"      // berbeda per subclass
+                + " kapasitas " + r.getKapasitas()
+                + " | " + r.getDetailRuangan());        // berbeda per subclass
+    }
+}
+```
+
+```java
+// peminjamanView.java — status peminjaman
 public void tampilkanStatus(Peminjaman p) {
     // getKategori() → "Internal" atau "Eksternal" tergantung subclass Peminjam
     System.out.println("Kategori     : " + p.getPeminjam().getKategori());
@@ -624,30 +744,36 @@ public void tampilkanStatus(Peminjaman p) {
 }
 ```
 
+Ketika data dari database ditampilkan, satu daftar yang sama bisa berisi `MeetingRoom`, `Laboratorium`, dan `KelasTeori` sekaligus, dan **baris kode yang sama** menghasilkan output yang berbeda untuk masing-masing — inilah inti dari polymorphism.
+
 #### Upcasting (menyimpan subclass ke referensi superclass)
 
-Di `PeminjamanController`, variabel `Ruangan` dan `Peminjam` bertipe abstrak, namun bisa menampung objek subclass mana pun:
+Variabel bertipe `Ruangan` dan `Peminjam` bersifat abstrak, namun bisa menampung objek subclass mana pun:
 
 ```java
-// PeminjamanController.java — buatRuangan()
-// Variabel bertipe Ruangan (abstract), tapi objeknya bisa berupa salah satu dari tiga subclass
-Ruangan ruangan;
-switch (jenis) {
-    case 1 -> ruangan = new MeetingRoom(id, nama, kapasitas, false, fasilitas);
-    case 2 -> ruangan = new Laboratorium(id, nama, kapasitas, false, jenisLab);
-    default-> ruangan = new KelasTeori(id, nama, kapasitas, false, kursi, proyektor);
+// PeminjamanController.java — buatPeminjam()
+// Tipe kembalian Peminjam (abstract), objeknya Internal atau Eksternal
+private Peminjam buatPeminjam() {
+    // ...
+    if (kategori == 1) {
+        return new PeminjamInternal(nama, nip);
+    } else {
+        return new PeminjamEksternal(nama, instansi);
+    }
 }
 ```
 
 ```java
-// PeminjamanController.java — buatPeminjam()
-// Variabel bertipe Peminjam (abstract), bisa menampung Internal atau Eksternal
-Peminjam peminjam;
-if (kategori == 1) {
-    peminjam = new PeminjamInternal(nama, nip);
-} else {
-    peminjam = new PeminjamEksternal(nama, instansi);
-}
+// PeminjamanDAO.java — mapRuangan()
+// Tipe kembalian Ruangan (abstract), objeknya salah satu dari tiga subclass
+// tergantung nilai kolom jenis_ruangan di database
+return switch (jenis) {
+    case "Meeting Room" -> new MeetingRoom(id, nama, kapasitas, tersedia, rs.getString("fasilitas"));
+    case "Laboratorium" -> new Laboratorium(id, nama, kapasitas, tersedia, rs.getString("jenis_laboratorium"));
+    case "Kelas Teori"  -> new KelasTeori(id, nama, kapasitas, tersedia,
+                                          rs.getInt("jumlah_kursi"), rs.getBoolean("ada_proyektor"));
+    default -> throw new SQLException("Jenis ruangan tidak dikenal: " + jenis);
+};
 ```
 
 ```java
@@ -656,26 +782,153 @@ private Peminjam peminjam;   // bisa menampung Internal atau Eksternal
 private Ruangan ruangan;     // bisa menampung MeetingRoom, Laboratorium, atau KelasTeori
 ```
 
-#### Dummy Data sebagai Bukti Polymorphism
+---
 
-Constructor controller memasukkan dua data dummy yang masing-masing menggunakan kombinasi subclass berbeda, membuktikan polimorfisme bekerja:
+## JDBC dan DAO
+
+### Apa yang Berubah?
+
+Sebelumnya data hanya disimpan di `ArrayList` sehingga hilang ketika program ditutup. Sekarang data disimpan permanen di **MariaDB** melalui **JDBC** (*Java Database Connectivity*), yaitu API standar Java untuk menjalankan perintah SQL dari kode program. **Database adalah sumber data utama**, sedangkan `ArrayList` di controller hanya salinan kerja di memori.
+
+### DatabaseConnection
+
+Class ini hanya bertugas membuka koneksi. Alamat, user, dan password **dibaca dari `db.properties`**, bukan ditulis di kode, sehingga password tidak ikut ter-commit ke GitHub.
 
 ```java
-// PeminjamanController.java — dummy()
-// Dummy 1: PeminjamEksternal + MeetingRoom
-Peminjam peminjam1 = new PeminjamEksternal("Budi Santoso", "PT Contoh Indonesia");
-Ruangan  ruangan1  = new MeetingRoom(201, "Meeting Room A", 15, false, "Proyektor dan Smart TV");
-daftarPeminjaman.add(new Peminjaman(peminjam1, "Rapat Evaluasi Bulanan", 1001, ruangan1, jadwal1));
-
-// Dummy 2: PeminjamInternal + KelasTeori
-Peminjam peminjam2 = new PeminjamInternal("Siti Rahayu", "D0123456");
-Ruangan  ruangan2  = new KelasTeori(101, "Kelas A1", 40, false, 40, true);
-daftarPeminjaman.add(new Peminjaman(peminjam2, "Seminar Tugas Akhir", 1002, ruangan2, jadwal2));
+// database/DatabaseConnection.java
+public static Connection getConnection() throws SQLException {
+    Properties props = muat();   // membaca /db.properties dari classpath
+    return DriverManager.getConnection(
+            props.getProperty("db.url"),
+            props.getProperty("db.user"),
+            props.getProperty("db.password"));
+}
 ```
 
-Ketika kedua data ini ditampilkan lewat `tampilkanStatus()`, **baris kode yang sama** menghasilkan output yang berbeda — inilah inti dari polymorphism.
+Jika `db.properties` tidak ditemukan, program berhenti dengan pesan yang menjelaskan cara memperbaikinya. `TestDatabase` adalah program kecil terpisah (punya `main` sendiri) untuk memastikan koneksi berhasil sebelum aplikasi utama dijalankan.
 
-![Output berbeda untuk setiap kombinasi subclass](gambar/polymorphism.png)
+### Skema Tabel
+
+Empat tabel digunakan (lengkapnya di `schema.sql`):
+
+| Tabel | Kolom | Keterangan |
+|-------|-------|------------|
+| `ruangan` | `id_ruangan`, `nama_ruangan`, `kapasitas`, `tersedia`, `jenis_ruangan`, `fasilitas`, `jenis_laboratorium`, `jumlah_kursi`, `ada_proyektor` | **Data master**, diisi sekali. Satu tabel untuk tiga subclass; kolom yang tidak relevan bernilai `NULL` |
+| `peminjam` | `id_peminjam` (auto), `nama`, `kategori`, `nip`, `nama_instansi` | `nip` terisi untuk Internal, `nama_instansi` untuk Eksternal |
+| `jadwal` | `id_jadwal` (auto), `tanggal`, `jam_mulai`, `jam_selesai` | |
+| `peminjaman` | `nomor_surat`, `id_peminjam`, `id_ruangan`, `id_jadwal`, `tujuan` | Tabel penghubung. `id_ruangan` adalah *foreign key* ke ruangan master |
+
+Satu ruangan dapat dipinjam berkali-kali pada jadwal yang berbeda, karena ruangan **dirujuk** oleh `peminjaman`, bukan dibuat ulang setiap pengajuan.
+
+### Apa Itu DAO?
+
+**DAO (Data Access Object)** adalah pola desain yang mengumpulkan seluruh kode akses database di satu class. Controller cukup memanggil `dao.simpan(p)` tanpa tahu tabel apa yang disentuh atau bagaimana SQL-nya ditulis. Jika database diganti, hanya DAO yang perlu diubah.
+
+| Method | Fungsi | SQL |
+|--------|--------|-----|
+| `simpan(Peminjaman)` | Menyimpan satu peminjaman lengkap | 3× `INSERT` dalam satu transaksi |
+| `findAll()` | Membaca semua peminjaman | `SELECT` + 3× `JOIN` |
+| `findAllRuangan()` | Membaca daftar ruangan master | `SELECT` |
+| `adaBentrok(...)` | Memeriksa bentrok jadwal pada ruangan | `SELECT` + `JOIN` + kondisi rentang waktu |
+| `hapus(int nomorSurat)` | Menghapus peminjaman beserta data peminjam dan jadwalnya | 3× `DELETE` dalam satu transaksi |
+| `gantiRuangan(int, int)` | Mengubah ruangan sebuah peminjaman | `UPDATE` |
+
+### Konsep JDBC yang Dipakai
+
+**1. `PreparedStatement` dan parameter `?`**
+
+Nilai tidak digabung ke string SQL, melainkan dikirim terpisah lewat `setString`, `setInt`, dan seterusnya. Ini mencegah **SQL Injection**.
+
+```java
+ps.setInt(1, nomorSurat);
+ps.executeUpdate();
+```
+
+**2. Transaksi (`commit` dan `rollback`)**
+
+Menyimpan satu peminjaman berarti menulis ke tiga tabel. Semuanya harus berhasil atau semuanya dibatalkan. `RuntimeException` (misalnya `DateTimeParseException`) ikut ditangkap agar rollback tetap berjalan.
+
+```java
+conn.setAutoCommit(false);   // mulai transaksi manual
+try {
+    // INSERT peminjam → jadwal → peminjaman
+    conn.commit();           // semua berhasil → permanen
+} catch (SQLException | RuntimeException e) {
+    conn.rollback();         // ada yang gagal → batalkan semua
+    throw e;
+} finally {
+    conn.setAutoCommit(true);
+}
+```
+
+**3. `RETURN_GENERATED_KEYS`**
+
+`id_peminjam` dan `id_jadwal` dibuat otomatis oleh database. ID tersebut diambil kembali untuk dipakai sebagai *foreign key* di tabel `peminjaman`.
+
+```java
+conn.prepareStatement(sqlPeminjam, Statement.RETURN_GENERATED_KEYS);
+// ...
+try (ResultSet keys = ps.getGeneratedKeys()) {
+    if (keys.next()) idPeminjam = keys.getInt(1);
+}
+```
+
+**4. *Try-with-resources***
+
+`Connection`, `PreparedStatement`, dan `ResultSet` otomatis ditutup di akhir blok, sehingga tidak ada koneksi yang bocor.
+
+**5. Konversi objek ke kolom (pattern matching `switch`)**
+
+Saat menyimpan peminjam, DAO memakai *pattern matching `switch`* untuk menentukan kolom mana yang diisi dan mana yang `NULL`.
+
+```java
+switch (peminjam) {
+    case PeminjamInternal pi -> {
+        ps.setString(3, pi.getNip());
+        ps.setNull(4, Types.VARCHAR);
+    }
+    case PeminjamEksternal pe -> {
+        ps.setNull(3, Types.VARCHAR);
+        ps.setString(4, pe.getNamaInstansi());
+    }
+    default -> throw new SQLException("Kategori peminjam tidak dikenal.");
+}
+```
+
+**6. Konversi baris ke objek**
+
+Di `findAll()` dan `findAllRuangan()`, kolom `kategori` dan `jenis_ruangan` menentukan subclass mana yang dibuat. Hasilnya tetap disimpan sebagai tipe abstrak `Peminjam` dan `Ruangan`. Logika pembuatan ruangan dipusatkan di satu method privat, `mapRuangan(ResultSet)`, agar tidak ditulis dua kali.
+
+**7. Konversi tipe tanggal dan jam**
+
+`View` menyimpan tanggal dan jam sebagai `String`, sedangkan MariaDB memakai tipe `DATE` dan `TIME`. DAO yang menjembatani keduanya (`LocalDate.parse` → `Date.valueOf`, dan `normalisasiJam` untuk menambah `:00`).
+
+**8. Deteksi bentrok jadwal**
+
+Dua rentang waktu bentrok jika yang satu mulai sebelum yang lain selesai, dan berakhir setelah yang lain mulai. Pengecekan dilakukan langsung di SQL.
+
+```java
+// PeminjamanDAO.java — adaBentrok()
+WHERE p.id_ruangan = ?
+  AND j.tanggal = ?
+  AND j.jam_mulai < ?        // mulai lama < selesai baru
+  AND j.jam_selesai > ?      // selesai lama > mulai baru
+  AND p.nomor_surat <> ?     // abaikan surat yang sedang diubah
+```
+
+Rentang yang saling bersambung (misalnya 08:00–10:00 dan 10:00–12:00) **tidak** dianggap bentrok.
+
+### Perubahan Alur di Controller
+
+| Menu | Sebelum (hanya `ArrayList`) | Sesudah (dengan database) |
+|------|----------------------------|---------------------------|
+| Constructor | Mengisi data dummy | `dao.findAll()` memuat data dari database |
+| 1. Pengajuan | Membuat ruangan baru, `list.add()` | Memilih ruangan master, cek bentrok, `dao.simpan()`, lalu `list.add()` |
+| 2. Cek Status | Membaca `ArrayList` | Memuat ulang dari database lewat `dao.findAll()` |
+| 3. Hapus | `list.remove()` | `dao.hapus()`, lalu `list.remove()` |
+| 4. Ganti Ruangan | `p.setRuangan()` | Pilih ruangan master, cek bentrok, `dao.gantiRuangan()`, lalu `p.setRuangan()` |
+
+Setiap `SQLException` ditangkap di controller dan ditampilkan lewat `view.pesan(...)`, sehingga program tidak crash saat database bermasalah.
 
 ---
 
@@ -694,7 +947,6 @@ Semua pembacaan input pengguna dipusatkan di `peminjamanView`. Setiap method mem
 | Konfirmasi Y/N | `bacaKonfirmasi()` | Hanya menerima `"Y"` atau `"N"` (tidak *case-sensitive*) |
 | Pilihan menu | `bacaPilihanMenu()` | Harus angka 1–5 |
 | Kategori peminjam | `pilihKategoriPeminjam()` | Harus `1` atau `2` |
-| Jenis ruangan | `pilihJenisRuangan()` | Harus `1`, `2`, atau `3` |
 
 ### Kode Validasi Format
 
@@ -770,20 +1022,20 @@ public String bacaKonfirmasi(String pesan) {
 }
 ```
 
-### Validasi Bisnis (di Controller)
+### Validasi Bisnis (di Controller dan Database)
 
-Selain validasi format, `PeminjamanController` menerapkan validasi bisnis yang membutuhkan akses ke data yang sudah tersimpan:
+Selain validasi format, sistem menerapkan validasi bisnis yang membutuhkan akses ke data yang sudah tersimpan:
 
 ```java
-// PeminjamanController.java — ID ruangan dan nomor surat harus unik
+// PeminjamanController.java — nomor surat harus unik dan lebih dari 0
 while (true) {
-    idRuangan = view.bacaInt("ID ruangan          (INT): ");
-    if (idRuangan <= 0) {
-        view.pesan(">> ID ruangan harus lebih dari 0.");
+    nomorSurat = view.bacaInt("Nomor Surat         (INT): ");
+    if (nomorSurat <= 0) {
+        view.pesan(">> Nomor surat harus lebih dari 0.");
         continue;
     }
-    if (idRuanganSudahDigunakan(idRuangan)) {
-        view.pesan(">> ID ruangan tersebut sudah digunakan.");
+    if (nomorSuratSudahDigunakan(nomorSurat)) {
+        view.pesan(">> Nomor surat tersebut sudah digunakan.");
         continue;
     }
     break;
@@ -794,20 +1046,38 @@ while (true) {
 // PeminjamanController.java — jam selesai harus setelah jam mulai
 while (true) {
     jamSelesai = view.bacaJam("Jam Selesai              : ");
-    LocalTime mulai   = LocalTime.parse(jamMulai,   DateTimeFormatter.ofPattern("HH:mm"));
-    LocalTime selesai = LocalTime.parse(jamSelesai, DateTimeFormatter.ofPattern("HH:mm"));
+    LocalTime mulai   = LocalTime.parse(jamMulai);
+    LocalTime selesai = LocalTime.parse(jamSelesai);
     if (selesai.isAfter(mulai)) break;
     view.pesan(">> Jam selesai harus setelah jam mulai.");
 }
 ```
 
 ```java
-// PeminjamanController.java — kapasitas dan jumlah kursi harus > 0
-while (true) {
-    kapasitas = view.bacaInt("Kapasitas ruangan   (INT): ");
-    if (kapasitas > 0) break;
-    view.pesan(">> Kapasitas harus lebih dari 0.");
+// PeminjamanController.java — ruangan harus ada di daftar master
+int id = view.bacaInt("Pilih ID ruangan (0 = batal): ");
+if (id == 0) return null;
+for (Ruangan r : daftar) {
+    if (r.getIdRuangan() == id) return r;
 }
+view.pesan(">> ID tidak ada dalam daftar.");
 ```
 
+```java
+// PeminjamanController.java — ruangan tidak boleh bentrok jadwal
+if (!dao.adaBentrok(ruangan.getIdRuangan(),
+        LocalDate.parse(tanggal), jamMulai, jamSelesai, -1)) break;
+view.pesan(">> Ruangan sudah dipinjam pada jadwal tersebut. Pilih ruangan lain.");
+```
+
+| Validasi Bisnis | Lokasi | Aturan |
+|-----------------|--------|--------|
+| Nomor surat unik | Controller | Ditolak jika sudah ada atau ≤ 0 |
+| Jam selesai > jam mulai | Controller | Ditolak jika `selesai` tidak setelah `mulai` |
+| Ruangan terdaftar | Controller | ID harus ada di daftar ruangan master |
+| Tidak bentrok jadwal | DAO (SQL) | Ruangan yang sama tidak boleh dipinjam pada rentang waktu yang beririsan |
+| Integritas relasi | Database | *Foreign key* mencegah peminjaman merujuk ruangan yang tidak ada |
+
 ![Contoh tampilan validasi input di terminal](gambar/validasi-input.png)
+
+---
