@@ -947,6 +947,8 @@ Semua pembacaan input pengguna dipusatkan di `peminjamanView`. Setiap method mem
 | Pilihan menu | `bacaPilihanMenu()` | Harus angka 1–5 |
 | Kategori peminjam | `pilihKategoriPeminjam()` | Harus `1` atau `2` |
 
+![Contoh tampilan validasi input di terminal](gambar/validasi-input.png)
+
 ### Kode Validasi Format
 
 ```java
@@ -1077,6 +1079,6 @@ view.pesan(">> Ruangan sudah dipinjam pada jadwal tersebut. Pilih ruangan lain."
 | Tidak bentrok jadwal | DAO (SQL) | Ruangan yang sama tidak boleh dipinjam pada rentang waktu yang beririsan |
 | Integritas relasi | Database | *Foreign key* mencegah peminjaman merujuk ruangan yang tidak ada |
 
-![Contoh tampilan validasi input di terminal](gambar/validasi-input.png)
+![Contoh tampilan validasi input di terminal](gambar/validasi-input-bis.png)
 
 ---
