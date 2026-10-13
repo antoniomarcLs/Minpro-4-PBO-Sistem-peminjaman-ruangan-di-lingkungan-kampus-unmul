@@ -1,35 +1,31 @@
 package com.mycompany.peminjamanruangan.controller;
 
+import com.mycompany.peminjamanruangan.dao.PeminjamanDAO;
 import com.mycompany.peminjamanruangan.model.*;
 import com.mycompany.peminjamanruangan.View.peminjamanView;
+
+import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.List;
 
 public class PeminjamanController {
+
+    // Salinan kerja di memori. Sumber data utama adalah database.
     private final ArrayList<Peminjaman> daftarPeminjaman = new ArrayList<>();
+    private final PeminjamanDAO dao = new PeminjamanDAO();
     private final peminjamanView view;
 
     public PeminjamanController(peminjamanView view) {
         this.view = view;
-        dummy();
-    }
 
-    private void dummy() {
-        // Dummy 1 — Peminjam Eksternal + MeetingRoom
-        Peminjam peminjam1 = new PeminjamEksternal("Budi Santoso", "PT Contoh Indonesia");
-        Ruangan  ruangan1  = new MeetingRoom(201, "Meeting Room A", 15, false,
-                                             "Proyektor dan Smart TV");
-        Jadwal   jadwal1   = new Jadwal("2026-09-20", "09:00", "11:00");
-        daftarPeminjaman.add(new Peminjaman(peminjam1, "Rapat Evaluasi Bulanan",
-                                            1001, ruangan1, jadwal1));
-
-        // Dummy 2 — Peminjam Internal + KelasTeori
-        Peminjam peminjam2 = new PeminjamInternal("Siti Rahayu", "D0123456");
-        Ruangan  ruangan2  = new KelasTeori(101, "Kelas A1", 40, false, 40, true);
-        Jadwal   jadwal2   = new Jadwal("2026-09-21", "13:00", "15:00");
-        daftarPeminjaman.add(new Peminjaman(peminjam2, "Seminar Tugas Akhir",
-                                            1002, ruangan2, jadwal2));
+        try {
+            daftarPeminjaman.addAll(dao.findAll());
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "Gagal memuat data peminjaman dari MariaDB.", e);
+        }
     }
 
     public void jalankan() {
@@ -50,85 +46,108 @@ public class PeminjamanController {
     }
 
     // ---------------------------------------------------------------
+    // MENU 1: PENGAJUAN SURAT
+    // Jadwal diisi SEBELUM memilih ruangan, karena cek bentrok
+    // membutuhkan ruangan dan jadwal sekaligus.
+    // ---------------------------------------------------------------
     private void ajukanSurat() {
         System.out.println("\n=== PENGAJUAN SURAT PEMINJAMAN ===");
 
-        // --- Data Peminjam (polimorfisme: pilih Internal atau Eksternal) ---
-        Peminjam peminjam = buatPeminjam();
+        try {
+            // Data peminjam (polimorfisme: Internal / Eksternal)
+            Peminjam peminjam = buatPeminjam();
 
-        // --- Data Ruangan ---
-        int idRuangan;
-        while (true) {
-            idRuangan = view.bacaInt("ID ruangan          (INT): ");
-            if (idRuangan <= 0) {
-                view.pesan(">> ID ruangan harus lebih dari 0.");
-                continue;
+            // Data surat
+            String tujuan = view.bacaString("Tujuan peminjaman        : ");
+
+            int nomorSurat;
+            while (true) {
+                nomorSurat = view.bacaInt("Nomor Surat         (INT): ");
+                if (nomorSurat <= 0) {
+                    view.pesan(">> Nomor surat harus lebih dari 0.");
+                    continue;
+                }
+                if (nomorSuratSudahDigunakan(nomorSurat)) {
+                    view.pesan(">> Nomor surat tersebut sudah digunakan.");
+                    continue;
+                }
+                break;
             }
-            if (idRuanganSudahDigunakan(idRuangan)) {
-                view.pesan(">> ID ruangan tersebut sudah digunakan.");
-                continue;
+
+            // Jadwal
+            String tanggal  = view.bacaTanggal("Tanggal Peminjaman       : ");
+            String jamMulai = view.bacaJam("Jam Mulai                : ");
+            String jamSelesai;
+            while (true) {
+                jamSelesai = view.bacaJam("Jam Selesai              : ");
+                LocalTime mulai   = LocalTime.parse(jamMulai);
+                LocalTime selesai = LocalTime.parse(jamSelesai);
+                if (selesai.isAfter(mulai)) break;
+                view.pesan(">> Jam selesai harus setelah jam mulai.");
             }
-            break;
+
+            // Pilih ruangan master + cek bentrok
+            Ruangan ruangan;
+            while (true) {
+                ruangan = pilihRuangan();
+                if (ruangan == null) {
+                    view.pesan(">> Pengajuan dibatalkan.");
+                    view.tekanEnter();
+                    return;
+                }
+                if (!dao.adaBentrok(ruangan.getIdRuangan(),
+                        LocalDate.parse(tanggal), jamMulai, jamSelesai, -1)) {
+                    break;
+                }
+                view.pesan(">> Ruangan sudah dipinjam pada jadwal tersebut. Pilih ruangan lain.");
+            }
+
+            Peminjaman peminjaman = new Peminjaman(
+                    peminjam,
+                    tujuan,
+                    nomorSurat,
+                    ruangan,
+                    new Jadwal(tanggal, jamMulai, jamSelesai)
+            );
+
+            // Database dulu, memori kemudian.
+            dao.simpan(peminjaman);
+            daftarPeminjaman.add(peminjaman);
+            view.pesan("\n>> SURAT BERHASIL DISIMPAN KE DATABASE!");
+
+        } catch (SQLException e) {
+            view.pesan(">> Gagal menyimpan peminjaman: " + e.getMessage());
         }
 
-        String namaRuangan = view.bacaString("Nama ruangan             : ");
-        int kapasitas;
-        while (true) {
-            kapasitas = view.bacaInt("Kapasitas ruangan   (INT): ");
-            if (kapasitas > 0) break;
-            view.pesan(">> Kapasitas harus lebih dari 0.");
-        }
-
-        // polimorfisme: tiga pilihan jenis ruangan, semuanya Ruangan
-        Ruangan ruangan = buatRuangan(idRuangan, namaRuangan, kapasitas);
-
-        // --- Data Surat ---
-        String tujuan = view.bacaString("Tujuan peminjaman        : ");
-
-        int nomorSurat;
-        while (true) {
-            nomorSurat = view.bacaInt("Nomor Surat         (INT): ");
-            if (nomorSurat <= 0) {
-                view.pesan(">> Nomor surat harus lebih dari 0.");
-                continue;
-            }
-            if (nomorSuratSudahDigunakan(nomorSurat)) {
-                view.pesan(">> Nomor surat tersebut sudah digunakan.");
-                continue;
-            }
-            break;
-        }
-
-        String tanggal  = view.bacaTanggal("Tanggal Peminjaman       : ");
-        String jamMulai = view.bacaJam("Jam Mulai                : ");
-        String jamSelesai;
-        while (true) {
-            jamSelesai = view.bacaJam("Jam Selesai              : ");
-            LocalTime mulai   = LocalTime.parse(jamMulai,   DateTimeFormatter.ofPattern("HH:mm"));
-            LocalTime selesai = LocalTime.parse(jamSelesai, DateTimeFormatter.ofPattern("HH:mm"));
-            if (selesai.isAfter(mulai)) break;
-            view.pesan(">> Jam selesai harus setelah jam mulai.");
-        }
-
-        Jadwal jadwal = new Jadwal(tanggal, jamMulai, jamSelesai);
-        daftarPeminjaman.add(new Peminjaman(peminjam, tujuan, nomorSurat, ruangan, jadwal));
-
-        view.pesan("\n>> SURAT BERHASIL DIAJUKAN!");
         view.tekanEnter();
     }
 
     // ---------------------------------------------------------------
+    // MENU 2: CEK STATUS (muat ulang dari database)
+    // ---------------------------------------------------------------
     private void tampilkanStatus() {
         System.out.println("\n=== STATUS PEMINJAMAN ===");
-        if (daftarPeminjaman.isEmpty()) {
-            view.pesan(">> Belum ada data peminjaman.");
-        } else {
-            for (Peminjaman p : daftarPeminjaman)
-                view.tampilkanStatus(p);
+
+        try {
+            daftarPeminjaman.clear();
+            daftarPeminjaman.addAll(dao.findAll());
+
+            if (daftarPeminjaman.isEmpty()) {
+                view.pesan(">> Belum ada data peminjaman.");
+            } else {
+                for (Peminjaman p : daftarPeminjaman) {
+                    view.tampilkanStatus(p);
+                }
+            }
+        } catch (SQLException e) {
+            view.pesan(">> Gagal mengambil data: " + e.getMessage());
         }
+
         view.tekanEnter();
     }
 
+    // ---------------------------------------------------------------
+    // MENU 3: HAPUS PEMINJAMAN
     // ---------------------------------------------------------------
     private void hapusSurat() {
         System.out.println("\n=== HAPUS PEMINJAMAN ===");
@@ -139,14 +158,25 @@ public class PeminjamanController {
             view.pesan(">> Nomor surat tidak ditemukan.");
         } else if (view.bacaKonfirmasi("\nYakin ingin menghapus surat ini? (Y/N): ")
                        .equalsIgnoreCase("Y")) {
-            daftarPeminjaman.remove(p);
-            view.pesan(">> Surat peminjaman berhasil dihapus!");
+            try {
+                if (dao.hapus(nomor)) {
+                    daftarPeminjaman.remove(p);
+                    view.pesan(">> Surat peminjaman berhasil dihapus!");
+                } else {
+                    view.pesan(">> Data tidak ditemukan di database.");
+                }
+            } catch (SQLException e) {
+                view.pesan(">> Gagal menghapus data: " + e.getMessage());
+            }
         } else {
             view.pesan(">> Penghapusan dibatalkan.");
         }
+
         view.tekanEnter();
     }
 
+    // ---------------------------------------------------------------
+    // MENU 4: GANTI RUANGAN
     // ---------------------------------------------------------------
     private void gantiRuangan() {
         System.out.println("\n=== GANTI RUANGAN ===");
@@ -161,46 +191,36 @@ public class PeminjamanController {
         view.pesan("\nRuangan saat ini : " + p.getRuangan().getNamaRuangan()
                    + " (" + p.getRuangan().getJenisRuangan() + ")");
 
-        if (!view.bacaKonfirmasi("Apakah ingin mengganti ruangan? (Y/N): ")
-                  .equalsIgnoreCase("Y")) {
-            view.pesan(">> Penggantian ruangan dibatalkan.");
-            view.tekanEnter();
-            return;
-        }
+        try {
+            Ruangan baru = pilihRuangan();
 
-        int idBaru;
-        while (true) {
-            idBaru = view.bacaInt("Masukkan ID Ruangan Baru: ");
-            if (idBaru <= 0) {
-                view.pesan(">> ID ruangan harus lebih dari 0.");
-                continue;
+            if (baru == null) {
+                view.pesan(">> Penggantian ruangan dibatalkan.");
+            } else if (baru.getIdRuangan() == p.getRuangan().getIdRuangan()) {
+                view.pesan(">> Itu adalah ruangan yang sedang dipakai.");
+            } else if (dao.adaBentrok(baru.getIdRuangan(),
+                    LocalDate.parse(p.getJadwal().getTanggal()),
+                    p.getJadwal().getJamMulai(),
+                    p.getJadwal().getJamSelesai(),
+                    p.getNomorSurat())) {
+                view.pesan(">> Ruangan tersebut bentrok dengan peminjaman lain.");
+            } else if (dao.gantiRuangan(p.getNomorSurat(), baru.getIdRuangan())) {
+                // Database berhasil -> baru ubah memori.
+                p.setRuangan(baru);
+                view.pesan(">> Ruangan berhasil diganti ke " + baru.getNamaRuangan()
+                           + " (" + baru.getJenisRuangan() + ")");
+            } else {
+                view.pesan(">> Gagal: nomor surat tidak ditemukan di database.");
             }
-            if (idBaruSudahDipakaiOlehPeminjamanLain(idBaru, p)) {
-                view.pesan(">> ID ruangan tersebut sudah digunakan.");
-                continue;
-            }
-            break;
+        } catch (SQLException e) {
+            view.pesan(">> Gagal mengganti ruangan: " + e.getMessage());
         }
 
-        String nama = view.bacaString("Masukkan Nama Ruangan Baru: ");
-        int kapasitas;
-        while (true) {
-            kapasitas = view.bacaInt("Masukkan Kapasitas Ruangan Baru: ");
-            if (kapasitas > 0) break;
-            view.pesan(">> Kapasitas harus lebih dari 0.");
-        }
-
-        // polimorfisme: hasil buatRuangan() bisa berupa tipe apa saja
-        Ruangan ruanganBaru = buatRuangan(idBaru, nama, kapasitas);
-        p.setRuangan(ruanganBaru);
-        view.pesan(">> Ruangan berhasil diganti!");
-        view.pesan("Ruangan baru : " + p.getRuangan().getNamaRuangan()
-                   + " (" + p.getRuangan().getJenisRuangan() + ")");
         view.tekanEnter();
     }
 
     // ---------------------------------------------------------------
-    // Helper: membuat objek Peminjam (polimorfisme — Internal/Eksternal)
+    // Helper: membuat objek Peminjam (polimorfisme: Internal / Eksternal)
     // ---------------------------------------------------------------
     private Peminjam buatPeminjam() {
         int kategori = view.pilihKategoriPeminjam();
@@ -208,38 +228,34 @@ public class PeminjamanController {
 
         if (kategori == 1) {
             String nip = view.bacaString("NIP / NIM                : ");
-            return new PeminjamInternal(nama, nip);   // polimorfisme
+            return new PeminjamInternal(nama, nip);
         } else {
             String instansi = view.bacaString("Nama instansi            : ");
-            return new PeminjamEksternal(nama, instansi); // polimorfisme
+            return new PeminjamEksternal(nama, instansi);
         }
     }
 
     // ---------------------------------------------------------------
-    // Helper: membuat objek Ruangan (polimorfisme — 3 pilihan)
+    // Helper: pilih ruangan dari data master.
+    // Mengembalikan null jika tidak ada ruangan atau pengguna batal (0).
     // ---------------------------------------------------------------
-    private Ruangan buatRuangan(int id, String nama, int kapasitas) {
-        int jenis = view.pilihJenisRuangan();
-        switch (jenis) {
-            case 1 -> {
-                String fasilitas = view.bacaString("Fasilitas Meeting Room   : ");
-                return new MeetingRoom(id, nama, kapasitas, false, fasilitas);
+    private Ruangan pilihRuangan() throws SQLException {
+        List<Ruangan> daftar = dao.findAllRuangan();
+
+        if (daftar.isEmpty()) {
+            view.pesan(">> Belum ada ruangan terdaftar di database.");
+            return null;
+        }
+
+        view.tampilkanDaftarRuangan(daftar);
+
+        while (true) {
+            int id = view.bacaInt("Pilih ID ruangan (0 = batal): ");
+            if (id == 0) return null;
+            for (Ruangan r : daftar) {
+                if (r.getIdRuangan() == id) return r;
             }
-            case 2 -> {
-                String jenisLab = view.bacaString("Jenis Laboratorium       : ");
-                return new Laboratorium(id, nama, kapasitas, false, jenisLab);
-            }
-            default -> {
-                int kursi;
-                while (true) {
-                    kursi = view.bacaInt("Jumlah Kursi        (INT): ");
-                    if (kursi > 0) break;
-                    view.pesan(">> Jumlah kursi harus lebih dari 0.");
-                }
-                boolean proyektor = view.bacaKonfirmasi(
-                        "Ada Proyektor? (Y/N)     : ").equalsIgnoreCase("Y");
-                return new KelasTeori(id, nama, kapasitas, false, kursi, proyektor);
-            }
+            view.pesan(">> ID tidak ada dalam daftar.");
         }
     }
 
@@ -249,18 +265,6 @@ public class PeminjamanController {
     private boolean nomorSuratSudahDigunakan(int nomor) {
         for (Peminjaman p : daftarPeminjaman)
             if (p.getNomorSurat() == nomor) return true;
-        return false;
-    }
-
-    private boolean idRuanganSudahDigunakan(int id) {
-        for (Peminjaman p : daftarPeminjaman)
-            if (p.getRuangan().getIdRuangan() == id) return true;
-        return false;
-    }
-
-    private boolean idBaruSudahDipakaiOlehPeminjamanLain(int id, Peminjaman sekarang) {
-        for (Peminjaman p : daftarPeminjaman)
-            if (p != sekarang && p.getRuangan().getIdRuangan() == id) return true;
         return false;
     }
 

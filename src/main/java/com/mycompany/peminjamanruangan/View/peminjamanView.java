@@ -1,10 +1,12 @@
 package com.mycompany.peminjamanruangan.View;
 
 import com.mycompany.peminjamanruangan.model.Peminjaman;
+import com.mycompany.peminjamanruangan.model.Ruangan;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.Scanner;
 
 public class peminjamanView {
@@ -99,15 +101,18 @@ public class peminjamanView {
         }
     }
 
-    public int pilihJenisRuangan() {
-        System.out.println("\n=== JENIS RUANGAN ===");
-        System.out.println("1. Meeting Room");
-        System.out.println("2. Laboratorium");
-        System.out.println("3. Kelas Teori");
-        while (true) {
-            int pilihan = bacaInt("Pilih jenis ruangan (1-3): ");
-            if (pilihan >= 1 && pilihan <= 3) return pilihan;
-            System.out.println(">> Pilihan hanya 1, 2, atau 3.");
+    /**
+     * Menampilkan daftar ruangan master.
+     * Polimorfisme: getJenisRuangan() dan getDetailRuangan() berbeda
+     * hasilnya untuk setiap subclass Ruangan.
+     */
+    public void tampilkanDaftarRuangan(List<Ruangan> daftar) {
+        System.out.println("\n=== DAFTAR RUANGAN ===");
+        for (Ruangan r : daftar) {
+            System.out.println(r.getIdRuangan() + ". " + r.getNamaRuangan()
+                    + " [" + r.getJenisRuangan() + "]"
+                    + " kapasitas " + r.getKapasitas()
+                    + " | " + r.getDetailRuangan());
         }
     }
 
@@ -130,8 +135,6 @@ public class peminjamanView {
         System.out.println("Tanggal      : " + p.getJadwal().getTanggal());
         System.out.println("Waktu        : " + p.getJadwal().getJamMulai()
                            + " - " + p.getJadwal().getJamSelesai());
-        System.out.println("Status       : "
-                           + (p.getRuangan().isTersedia() ? "Tersedia" : "Sedang Dipinjam"));
     }
 
     public void tekanEnter() {

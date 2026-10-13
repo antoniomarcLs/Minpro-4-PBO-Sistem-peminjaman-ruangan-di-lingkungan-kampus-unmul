@@ -1,6 +1,9 @@
 /home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/Peminjamanruangan.java
 /home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/View/peminjamanView.java
 /home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/controller/PeminjamanController.java
+/home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/dao/PeminjamanDAO.java
+/home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/database/DatabaseConnection.java
+/home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/database/TestDatabase.java
 /home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/model/Jadwal.java
 /home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/model/KelasTeori.java
 /home/kila/NetBeansProjects/Peminjamanruangan/src/main/java/com/mycompany/peminjamanruangan/model/Laboratorium.java
