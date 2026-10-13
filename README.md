@@ -14,7 +14,6 @@ Aplikasi **console-based** berbasis Java untuk mengelola pengajuan surat peminja
 - [Polymorphism dan Abstraction](#polymorphism-dan-abstraction)
 - [JDBC dan DAO](#jdbc-dan-dao)
 - [Validasi Input](#validasi-input)
-- [Keterbatasan Saat Ini](#keterbatasan-saat-ini)
 
 ---
 
